@@ -18,7 +18,7 @@ void RbInsertContext::insertHeaders(const Http::ResponseHeaderMap& response_head
                                     const ResponseMetadata& metadata, InsertCallback insert_success,
                                     bool end_stream) {
   ASSERT(!committed_);
-
+  cache_.notifyInsertStart(static_cast<const RbLookupContext&>(*lookup_context_).getKey());
   cache_entry_.response_headers =
       Http::createHeaderMap<Http::ResponseHeaderMapImpl>(response_headers);
   cache_entry_.metadata = metadata;
@@ -61,7 +61,10 @@ void RbInsertContext::post(InsertCallback cb, bool result) {
 
 bool RbInsertContext::commit() {
   cache_entry_.body = body_buffer_.toString();
-  return cache_.insert(static_cast<const RbLookupContext&>(*lookup_context_), std::move(cache_entry_));
+  const auto& rb_lookup_context = static_cast<const RbLookupContext&>(*lookup_context_);
+  auto result = cache_.insert(rb_lookup_context, std::move(cache_entry_));
+  cache_.notifyInsertEnd(rb_lookup_context.getKey());
+  return result;
 }
 
 } // namespace RingBufferHttpCache
