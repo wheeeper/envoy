@@ -4,6 +4,7 @@
 #include "rb_cache_key.hpp"
 #include "rb_insert_context.h"
 #include "rb_lookup_context.h"
+#include "response_data.hpp"
 #include <memory>
 #include <optional>
 
@@ -52,7 +53,7 @@ void RingBufferHttpCache::updateHeaders(const LookupContext& lookup_context,
   std::optional<std::pair<RbCacheKey, size_t>> lookup_result = std::nullopt;
 
   {
-    absl::ReaderMutexLock read_lock(&mutex_);
+    absl::ReaderMutexLock read_lock(&cache_mtx_);
     lookup_result = getCacheEntry(rb_lookup_context.getReqeuest());
 
     if (!lookup_result || !ring_buffer_.get(lookup_result.value().second).second.response_headers) {
@@ -62,7 +63,7 @@ void RingBufferHttpCache::updateHeaders(const LookupContext& lookup_context,
   }
 
   auto& entry_info = lookup_result.value();
-  absl::WriterMutexLock write_lock(&mutex_);
+  absl::WriterMutexLock write_lock(&cache_mtx_);
 
   if (ring_buffer_.get(entry_info.second).first != entry_info.first) {
     std::move(post_complete)(false);
@@ -78,7 +79,7 @@ void RingBufferHttpCache::updateHeaders(const LookupContext& lookup_context,
 absl::optional<std::pair<RbCacheKey, size_t>>
 RingBufferHttpCache::getCacheEntry(const LookupRequest& request) {
 
-  mutex_.AssertReaderHeld();
+  cache_mtx_.AssertReaderHeld();
 
   RbCacheKey key(request.key());
   auto result = searchBuffer(key, RbCacheKey::compareOriginalKeys);
@@ -110,7 +111,7 @@ absl::optional<std::string> RingBufferHttpCache::getVaryId(const LookupRequest& 
 
 absl::optional<size_t> RingBufferHttpCache::searchBuffer(const RbCacheKey& key,
                                                          CompareFuncType comparator) {
-  mutex_.AssertReaderHeld();
+  cache_mtx_.AssertReaderHeld();
 
   for (size_t i = 0; i < ring_buffer_.size(); ++i) {
     if (comparator(key, ring_buffer_.get(i).first)) {
@@ -121,15 +122,39 @@ absl::optional<size_t> RingBufferHttpCache::searchBuffer(const RbCacheKey& key,
 }
 
 absl::optional<ResponseData> RingBufferHttpCache::lookup(const LookupRequest& request) {
-  absl::ReaderMutexLock lock(&mutex_);
+
+  cache_mtx_.ReaderLock();
   auto lookup_result = getCacheEntry(request);
+  std::shared_ptr<absl::Notification> insert = nullptr;
 
   if (!lookup_result) {
-    return absl::nullopt;
+    absl::ReaderMutexLock insert_map_lock(&insert_map_mtx_);
+    auto it = currently_inserted_.find(request.key());
+    cache_mtx_.ReaderUnlock();
+
+    if (it != currently_inserted_.end()) {
+      insert = it->second;
+    }
+  } else {
+    cache_mtx_.ReaderUnlock();
   }
 
-  auto entry = ring_buffer_.get(lookup_result.value().second).second;
-  return entry;
+  if (insert) {
+    insert->WaitForNotification(); // TODO: maybe add with timeout
+  }
+
+  absl::optional<ResponseData> cache_entry = absl::nullopt;
+
+  if (lookup_result) {
+    absl::ReaderMutexLock cache_read_lock(&cache_mtx_);
+    cache_entry = absl::make_optional(ring_buffer_.get(lookup_result->second).second);
+  } else if (insert) {
+    absl::ReaderMutexLock cache_read_lock(&cache_mtx_);
+    lookup_result = getCacheEntry(request);
+    cache_entry = absl::make_optional(ring_buffer_.get(lookup_result->second).second);
+  }
+
+  return cache_entry;
 }
 
 bool RingBufferHttpCache::insert(const RbLookupContext& lookup_context,
@@ -142,7 +167,7 @@ bool RingBufferHttpCache::insert(const RbLookupContext& lookup_context,
     key.vary_id = vary_id;
   }
 
-  absl::WriterMutexLock write_lock(&mutex_);
+  absl::WriterMutexLock write_lock(&cache_mtx_);
 
   auto lookup_result = searchBuffer(key, RbCacheKey::compareWholeKeys);
 
@@ -157,6 +182,22 @@ bool RingBufferHttpCache::insert(const RbLookupContext& lookup_context,
   }
 
   return true;
+}
+
+void RingBufferHttpCache::notifyInsertStart(Key key) {
+  absl::WriterMutexLock write_lock(&insert_map_mtx_);
+  if (currently_inserted_.find(key) == currently_inserted_.end()) {
+    currently_inserted_[key] = std::make_shared<absl::Notification>();
+  }
+}
+
+void RingBufferHttpCache::notifyInsertEnd(Key key) {
+  absl::WriterMutexLock write_lock(&insert_map_mtx_);
+  auto it = currently_inserted_.find(key);
+  if (it != currently_inserted_.end()) {
+    it->second->Notify();
+    currently_inserted_.erase(it);
+  }
 }
 
 } // namespace RingBufferHttpCache
