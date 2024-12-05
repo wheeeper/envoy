@@ -18,18 +18,22 @@ public:
   RbInsertContext(RingBufferHttpCache& cache, Event::Dispatcher& dispatcher,
                   LookupContextPtr&& lookup_context);
 
-  virtual ~RbInsertContext();
+  ~RbInsertContext() override;
 
+  // from InsertContext
   void insertHeaders(const Http::ResponseHeaderMap& response_headers,
                      const ResponseMetadata& metadata, InsertCallback insert_success,
                      bool end_stream) override;
 
+  // from InsertContext
   void insertBody(const Buffer::Instance& chunk, InsertCallback ready_for_next_chunk,
                   bool end_stream) override;
 
+  // from InsertContext
   void insertTrailers(const Http::ResponseTrailerMap& trailers,
                       InsertCallback insert_complete) override;
 
+  // from InsertContext
   void onDestroy() override;
 
 private:

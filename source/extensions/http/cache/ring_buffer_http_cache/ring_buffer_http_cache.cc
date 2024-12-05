@@ -54,7 +54,7 @@ void RingBufferHttpCache::updateHeaders(const LookupContext& lookup_context,
 
   {
     absl::ReaderMutexLock read_lock(&cache_mtx_);
-    lookup_result = getCacheEntry(rb_lookup_context.getReqeuest());
+    lookup_result = getCacheEntryInfo(rb_lookup_context.getReqeuest());
 
     if (!lookup_result || !ring_buffer_.get(lookup_result.value().second).second.response_headers) {
       std::move(post_complete)(false);
@@ -77,7 +77,7 @@ void RingBufferHttpCache::updateHeaders(const LookupContext& lookup_context,
 }
 
 absl::optional<std::pair<RbCacheKey, size_t>>
-RingBufferHttpCache::getCacheEntry(const LookupRequest& request) {
+RingBufferHttpCache::getCacheEntryInfo(const LookupRequest& request) {
 
   cache_mtx_.AssertReaderHeld();
 
@@ -110,7 +110,7 @@ absl::optional<std::string> RingBufferHttpCache::getVaryId(const LookupRequest& 
 }
 
 absl::optional<size_t> RingBufferHttpCache::searchBuffer(const RbCacheKey& key,
-                                                         CompareFuncType comparator) {
+                                                         KeyCompareFuncType comparator) {
   cache_mtx_.AssertReaderHeld();
 
   for (size_t i = 0; i < ring_buffer_.size(); ++i) {
@@ -124,7 +124,7 @@ absl::optional<size_t> RingBufferHttpCache::searchBuffer(const RbCacheKey& key,
 absl::optional<ResponseData> RingBufferHttpCache::lookup(const LookupRequest& request) {
 
   cache_mtx_.ReaderLock();
-  auto lookup_result = getCacheEntry(request);
+  auto lookup_result = getCacheEntryInfo(request);
   std::shared_ptr<absl::Notification> insert = nullptr;
 
   if (!lookup_result) {
@@ -140,7 +140,7 @@ absl::optional<ResponseData> RingBufferHttpCache::lookup(const LookupRequest& re
   }
 
   if (insert) {
-    insert->WaitForNotification(); // TODO: maybe add with timeout
+    insert->WaitForNotification(); // TODO: probably should be timeouted
   }
 
   absl::optional<ResponseData> cache_entry = absl::nullopt;
@@ -150,7 +150,7 @@ absl::optional<ResponseData> RingBufferHttpCache::lookup(const LookupRequest& re
     cache_entry = absl::make_optional(ring_buffer_.get(lookup_result->second).second);
   } else if (insert) {
     absl::ReaderMutexLock cache_read_lock(&cache_mtx_);
-    lookup_result = getCacheEntry(request);
+    lookup_result = getCacheEntryInfo(request);
     cache_entry = absl::make_optional(ring_buffer_.get(lookup_result->second).second);
   }
 
@@ -165,6 +165,10 @@ bool RingBufferHttpCache::insert(const RbLookupContext& lookup_context,
   if (VaryHeaderUtils::hasVary(*cache_entry.response_headers)) {
     auto vary_id = getVaryId(lookup_context.getReqeuest(), cache_entry);
     key.vary_id = vary_id;
+  }
+
+  if (!cache_entry.response_headers) {
+    return false;
   }
 
   absl::WriterMutexLock write_lock(&cache_mtx_);

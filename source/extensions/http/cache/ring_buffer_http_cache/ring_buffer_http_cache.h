@@ -43,32 +43,46 @@ public:
   // From HttpCache
   CacheInfo cacheInfo() const override;
 
-  // Lookups entry in cache
-  // Return entry if found, otherwise nullopt
+  // Lookups cache entry
+  // Returns absl::optional<ResponseData> if request found, otherwise absl::nullopt
   absl::optional<ResponseData> lookup(const LookupRequest& request);
 
+  // Inserts entry to cache
+  // Returns true if succesfull, otherwise false
   bool insert(const RbLookupContext& lookup_context, ResponseData&& cache_entry);
 
+  // Notifys cache that insert is being prepared
   void notifyInsertStart(Key key);
 
+  // Notifys cache that insert has finished
   void notifyInsertEnd(Key key);
 
+  // Gets cache config
   const RbCacheProtoConfig& getConfig() const;
 
 private:
   using RingBufferType = RingBuffer<std::pair<RbCacheKey, ResponseData>>;
 
-  using CompareFuncType = std::function<bool(RbCacheKey, RbCacheKey)>;
+  using KeyCompareFuncType = std::function<bool(const RbCacheKey&, const RbCacheKey&)>;
 
-  absl::optional<size_t> searchBuffer(const RbCacheKey& key, CompareFuncType comparator);
+  // Searches internal storage ring buffer for entry
+  // Takes RbCacheKey key, for which is searched and CompareFuncType function, which is used for
+  // comparison of keys Returns absl::optional<size_t> with entry index if found, otherwise
+  // absl::nullopt
+  absl::optional<size_t> searchBuffer(const RbCacheKey& key, KeyCompareFuncType comparator);
 
-  absl::optional<std::pair<RbCacheKey, size_t>> getCacheEntry(const LookupRequest& request);
+  // Gets cache entry info based on lookup request
+  // Returns absl::optional<std::pair<RbCacheKey, size_t>> with found key and index position,
+  // otherwise absl::nullopt
+  absl::optional<std::pair<RbCacheKey, size_t>> getCacheEntryInfo(const LookupRequest& request);
 
   absl::optional<std::string> getVaryId(const LookupRequest& request,
                                         const ResponseData& response_headers);
 
+  // Ring buffer cache
   RingBufferType ring_buffer_ ABSL_GUARDED_BY(cache_mtx_);
 
+  // Map of currently inserted keys with absl::Notification for synchronization between threads
   absl::flat_hash_map<Key, std::shared_ptr<absl::Notification>, MessageUtil, MessageUtil>
       currently_inserted_ ABSL_GUARDED_BY(insert_map_mtx_);
 

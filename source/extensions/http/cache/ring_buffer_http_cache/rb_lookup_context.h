@@ -16,7 +16,7 @@ public:
   RbLookupContext(RingBufferHttpCache& cache, Event::Dispatcher& dispatcher,
                   LookupRequest&& request);
 
-  ~RbLookupContext();
+  ~RbLookupContext() override;
 
   // from LookupContext
   void getHeaders(LookupHeadersCallback&& cb) override;

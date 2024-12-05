@@ -16,8 +16,7 @@ RbLookupContext::RbLookupContext(RingBufferHttpCache& cache, Event::Dispatcher& 
 RbLookupContext::~RbLookupContext() { onDestroy(); }
 
 void RbLookupContext::getHeaders(LookupHeadersCallback&& cb) {
-  // Lookup in cache
-  // If succesfull, returns copy of RbCacheEntry
+
   auto lookupRes = cache_.lookup(request_);
 
   LookupResult result;

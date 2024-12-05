@@ -10,6 +10,8 @@ namespace HttpFilters {
 namespace Cache {
 namespace RingBufferHttpCache {
 
+/// Servers as a singleton for cache creation
+// Caches are identified by cache_name
 class CacheManager : public Singleton::Instance {
 public:
   CacheManager() = default;

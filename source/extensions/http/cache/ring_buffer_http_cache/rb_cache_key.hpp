@@ -12,6 +12,7 @@ namespace HttpFilters {
 namespace Cache {
 namespace RingBufferHttpCache {
 
+// Structure for RingBuferHttpCache key
 struct RbCacheKey {
 public:
   RbCacheKey() = default;
@@ -53,12 +54,6 @@ public:
   bool operator !=(const RbCacheKey& rhs) const {
     return !(*this == rhs);
   }
-
-  // auto getKey() -> decltype(auto) { return key_; }
-
-  // auto getVaryId() -> decltype(auto) { return vary_identifier_; }
-
-  // void setVaryId(const std::string& vary_identifier) { vary_identifier_ = vary_identifier; }
 
   static bool compareOriginalKeys(const RbCacheKey& first, const RbCacheKey& second) {
     return Protobuf::util::MessageDifferencer::Equals(first.key, second.key);
