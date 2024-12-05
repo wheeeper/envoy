@@ -20,20 +20,23 @@ void RbLookupContext::getHeaders(LookupHeadersCallback&& cb) {
   // If succesfull, returns copy of RbCacheEntry
   auto lookupRes = cache_.lookup(request_);
 
-  if (!lookupRes) {
-    return;
+  LookupResult result;
+
+  if (lookupRes) {
+
+    auto entry = lookupRes.value();
+
+    body_ = std::move(entry.body);
+    trailers_ = std::move(entry.trailers);
+
+    result = entry.response_headers
+                 ? request_.makeLookupResult(std::move(entry.response_headers),
+                                             std::move(entry.metadata), body_.size())
+                 : LookupResult{};
   }
 
-  auto entry = lookupRes.value();
-
-  body_ = std::move(entry.body);
-  trailers_ = std::move(entry.trailers);
-
-  LookupResult result = entry.response_headers
-                            ? request_.makeLookupResult(std::move(entry.response_headers),
-                                                        std::move(entry.metadata), body_.size())
-                            : LookupResult{};
   bool end_stream = body_.empty() && trailers_ == nullptr;
+
   dispatcher_.post([result = std::move(result), cb = std::move(cb), end_stream,
                     cancelled = cancelled_]() mutable {
     if (!*cancelled) {

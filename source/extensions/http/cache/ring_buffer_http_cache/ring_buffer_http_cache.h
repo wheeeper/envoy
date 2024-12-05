@@ -61,7 +61,7 @@ private:
 
   absl::optional<std::string> getVaryId(const LookupRequest& request,
                                         const ResponseData& response_headers);
-  RingBufferType ring_buffer_;
+  RingBufferType ring_buffer_ ABSL_GUARDED_BY(mutex_); 
 
   RbCacheProtoConfig config_;
 

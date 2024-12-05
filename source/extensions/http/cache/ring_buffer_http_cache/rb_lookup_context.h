@@ -51,7 +51,7 @@ private:
 
   std::string body_;
 
-  Http::ResponseTrailerMapPtr trailers_;
+  Http::ResponseTrailerMapPtr trailers_ = nullptr;
 };
 
 using RbLookupContextPtr = std::unique_ptr<RbLookupContext>;

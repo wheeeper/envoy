@@ -54,11 +54,11 @@ void RingBufferHttpCache::updateHeaders(const LookupContext& lookup_context,
   {
     absl::ReaderMutexLock read_lock(&mutex_);
     lookup_result = getCacheEntry(rb_lookup_context.getReqeuest());
-  }
 
-  if (!lookup_result || ring_buffer_.get(lookup_result.value().second).second.response_headers) {
-    std::move(post_complete)(false);
-    return;
+    if (!lookup_result || !ring_buffer_.get(lookup_result.value().second).second.response_headers) {
+      std::move(post_complete)(false);
+      return;
+    }
   }
 
   auto& entry_info = lookup_result.value();
@@ -110,6 +110,8 @@ absl::optional<std::string> RingBufferHttpCache::getVaryId(const LookupRequest& 
 
 absl::optional<size_t> RingBufferHttpCache::searchBuffer(const RbCacheKey& key,
                                                          CompareFuncType comparator) {
+  mutex_.AssertReaderHeld();
+
   for (size_t i = 0; i < ring_buffer_.size(); ++i) {
     if (comparator(key, ring_buffer_.get(i).first)) {
       return absl::make_optional(i);
@@ -121,8 +123,13 @@ absl::optional<size_t> RingBufferHttpCache::searchBuffer(const RbCacheKey& key,
 absl::optional<ResponseData> RingBufferHttpCache::lookup(const LookupRequest& request) {
   absl::ReaderMutexLock lock(&mutex_);
   auto lookup_result = getCacheEntry(request);
-  return lookup_result ? absl::make_optional(ring_buffer_.get(lookup_result.value().second).second)
-                       : std::nullopt;
+
+  if (!lookup_result) {
+    return absl::nullopt;
+  }
+
+  auto entry = ring_buffer_.get(lookup_result.value().second).second;
+  return entry;
 }
 
 bool RingBufferHttpCache::insert(const RbLookupContext& lookup_context,
@@ -137,11 +144,18 @@ bool RingBufferHttpCache::insert(const RbLookupContext& lookup_context,
 
   absl::WriterMutexLock write_lock(&mutex_);
 
-  if (ring_buffer_.full()) {
-    ring_buffer_.pop();
+  auto lookup_result = searchBuffer(key, RbCacheKey::compareWholeKeys);
+
+  if (lookup_result) {
+    ring_buffer_.get(lookup_result.value()).second = std::move(cache_entry);
+  } else {
+    if (ring_buffer_.full()) {
+      ring_buffer_.pop();
+    }
+
+    ring_buffer_.push(std::make_pair(std::move(key), std::move(cache_entry)));
   }
 
-  ring_buffer_.push(std::make_pair(std::move(key), std::move(cache_entry)));
   return true;
 }
 
